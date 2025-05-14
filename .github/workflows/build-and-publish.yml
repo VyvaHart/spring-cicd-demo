@@ -1,0 +1,71 @@
+name: Java CI/CD with Maven and Docker
+
+on:
+  push:
+    branches: [ "main" ] # Run workflow on main while pushing
+  pull_request:
+    branches: [ "main" ] # Run while pull request on main
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin' # Java distro
+          cache: 'maven'
+
+      - name: Build and test with Maven
+        run: mvn -B package --file pom.xml # '-B' - non-interactive mode
+
+      - name: Rename JAR for Docker context
+        run: mv target/*.jar target/app.jar # change name to app.jar
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar # Artifakt name
+          path: target/app.jar
+
+  build-and-push-docker-image:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' # Run only on push to main
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: target
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/cicd-demo:${{ github.sha }}
